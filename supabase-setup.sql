@@ -1,73 +1,45 @@
--- ============================================================
--- CEMV — Configuration Supabase v3 (Équipe, Partenaires, Publications, Documents)
--- À exécuter en plus des scripts v2 précédents (ne les remplace pas).
--- ============================================================
+-- À exécuter une seule fois : Supabase > SQL Editor > New query > Run
 
-create table if not exists team (
+create table actualites (
   id bigint generated always as identity primary key,
-  sort_order int not null default 0,
-  name text not null,
-  role text not null,
-  photo text,
-  bio text,
-  created_at timestamptz not null default now()
+  categorie text not null,
+  date_pub date not null default current_date,
+  titre text not null,
+  texte text,
+  image_url text,
+  created_at timestamptz default now()
 );
-
-create table if not exists partners (
+create table documents (
   id bigint generated always as identity primary key,
-  sort_order int not null default 0,
-  name text not null,
-  logo text,
-  website text,
-  created_at timestamptz not null default now()
+  titre text not null,
+  fichier_url text not null,
+  taille text,
+  created_at timestamptz default now()
 );
+create table admins (user_id uuid primary key references auth.users(id) on delete cascade);
 
-create table if not exists publications (
-  id bigint generated always as identity primary key,
-  sort_order int not null default 0,
-  title text not null,
-  authors text,
-  source text,
-  year text,
-  file_url text,
-  created_at timestamptz not null default now()
-);
+alter table actualites enable row level security;
+alter table documents  enable row level security;
+alter table admins     enable row level security;
 
-create table if not exists documents (
-  id bigint generated always as identity primary key,
-  sort_order int not null default 0,
-  title text not null,
-  file_url text not null,
-  created_at timestamptz not null default now()
-);
+create policy "lecture publique actualites" on actualites for select using (true);
+create policy "lecture publique documents"  on documents  for select using (true);
+create policy "admin ecrit actualites" on actualites for all
+  using (exists (select 1 from admins where user_id = auth.uid()))
+  with check (exists (select 1 from admins where user_id = auth.uid()));
+create policy "admin ecrit documents" on documents for all
+  using (exists (select 1 from admins where user_id = auth.uid()))
+  with check (exists (select 1 from admins where user_id = auth.uid()));
+create policy "un admin voit sa ligne" on admins for select using (user_id = auth.uid());
 
-alter table team enable row level security;
-alter table partners enable row level security;
-alter table publications enable row level security;
-alter table documents enable row level security;
+-- Stockage des PDF
+insert into storage.buckets (id, name, public) values ('documents', 'documents', true) on conflict do nothing;
+create policy "lecture publique pdf" on storage.objects for select using (bucket_id = 'documents');
+create policy "admin envoie pdf" on storage.objects for insert
+  with check (bucket_id = 'documents' and exists (select 1 from admins where user_id = auth.uid()));
+create policy "admin supprime pdf" on storage.objects for delete
+  using (bucket_id = 'documents' and exists (select 1 from admins where user_id = auth.uid()));
 
--- Lecture publique pour tout le monde, écriture réservée à l'administrateur
--- (ces sections sont plus "officielles" : seul admin écrit, pas le rôle chercheur)
-drop policy if exists "team_read_all" on team;
-create policy "team_read_all" on team for select using (true);
-drop policy if exists "team_write_admin" on team;
-create policy "team_write_admin" on team for all
-  using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
-
-drop policy if exists "partners_read_all" on partners;
-create policy "partners_read_all" on partners for select using (true);
-drop policy if exists "partners_write_admin" on partners;
-create policy "partners_write_admin" on partners for all
-  using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
-
-drop policy if exists "publications_read_all" on publications;
-create policy "publications_read_all" on publications for select using (true);
-drop policy if exists "publications_write_admin" on publications;
-create policy "publications_write_admin" on publications for all
-  using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
-
-drop policy if exists "documents_read_all" on documents;
-create policy "documents_read_all" on documents for select using (true);
-drop policy if exists "documents_write_admin" on documents;
-create policy "documents_write_admin" on documents for all
-  using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
+-- APRÈS avoir créé l'utilisateur administrateur (Authentication > Users > Add user),
+-- remplacez l'adresse ci-dessous par la sienne et exécutez cette ligne :
+-- insert into admins (user_id) select id from auth.users where email = 'ADMIN@EXEMPLE.CI';
